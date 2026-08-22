@@ -1,0 +1,1 @@
+pip install PySide6 pynput pyautogui pyperclip pyttsx3 sounddevice numpy faster-whisper PyQt6

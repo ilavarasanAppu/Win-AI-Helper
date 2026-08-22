@@ -1,0 +1,16 @@
+{
+  "ollama_url": "http://localhost:11434",
+  "default_model": "gemma3:1b-it-qat",
+  "keep_alive": "2m",
+  "hotkeys": {
+    "toggle_quick_bar": "<ctrl>+<alt>+g",
+    "process_selection": "<ctrl>+<alt>+x",
+    "voice_to_text": "<ctrl>+<alt>+v"
+  },
+  "sd_api_url": "http://127.0.0.1:7860/sdapi/v1/txt2img",
+  "whisper_model_size": "base",
+  "tts_rate": 180,
+  "enable_clipboard_monitor": true,
+  "clipboard_poll_interval_ms": 500,
+  "_note": "Hotkeys use Ctrl+Alt+G/X/V. Alt+Space is reserved by Windows Explorer and cannot be captured by pynput, so Ctrl+Alt+G is used as the quick-bar opener."
+}

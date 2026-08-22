@@ -1,0 +1,21 @@
+{
+  "active_skill": "🎯 Direct Answer Only",
+  "skills": [
+    {
+      "name": "🎯 Direct Answer Only",
+      "prompt": "IMPORTANT: Return ONLY the direct answer. Do NOT include any explanations, introductions, conclusions, meta-commentary, or suggestions."
+    },
+    {
+      "name": "📄 JSON Format Only",
+      "prompt": "IMPORTANT: Return ONLY valid JSON format matching the request. Do NOT wrap in markdown explanation or conversational text."
+    },
+    {
+      "name": "🔤 Tanglish",
+      "prompt": "IMPORTANT: Respond strictly in Tanglish (Tamil language written using English/Latin alphabet). Keep the answer direct and natural."
+    },
+    {
+      "name": "💻 Code Only",
+      "prompt": "IMPORTANT: Return ONLY executable code inside code block. Do NOT include any conversational introduction or explanation."
+    }
+  ]
+}
