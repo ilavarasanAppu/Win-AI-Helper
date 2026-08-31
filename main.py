@@ -85,10 +85,25 @@ def is_auto_startup_enabled() -> bool:
     return os.path.exists(shortcut_path)
 
 
+def get_pythonw_executable() -> str:
+    """Find pythonw.exe path for native windowless GUI execution without terminal allocation."""
+    venv_pyw = os.path.expandvars(r"%USERPROFILE%\AppData\Local\hermes\hermes-agent\venv\Scripts\pythonw.exe")
+    if os.path.exists(venv_pyw):
+        return venv_pyw
+    py_exe = sys.executable
+    if py_exe.lower().endswith("python.exe"):
+        pyw = py_exe[:-10] + "pythonw.exe"
+        if os.path.exists(pyw):
+            return pyw
+    return "pythonw.exe"
+
+
 def set_auto_startup(enable: bool):
-    """Enable or disable Windows Auto Startup via Registry and Startup folder shortcut."""
-    run_bat = os.path.abspath(os.path.join(os.path.dirname(__file__), "run.bat"))
-    target_cmd = f'"{run_bat}"'
+    """Enable or disable Windows Auto Startup via Registry and Startup folder shortcut using native pythonw.exe."""
+    pythonw_exe = get_pythonw_executable()
+    main_py = os.path.abspath(os.path.join(os.path.dirname(__file__), "main.py"))
+    app_dir = os.path.dirname(main_py)
+    target_cmd = f'"{pythonw_exe}" "{main_py}"'
 
     # 1. Windows Registry (HKCU\Software\Microsoft\Windows\CurrentVersion\Run)
     try:
@@ -124,8 +139,9 @@ def set_auto_startup(enable: bool):
             ps_cmd = (
                 f'$ws = New-Object -ComObject WScript.Shell; '
                 f'$s = $ws.CreateShortcut("{shortcut_path}"); '
-                f'$s.TargetPath = "{run_bat}"; '
-                f'$s.WorkingDirectory = "{os.path.dirname(run_bat)}"; '
+                f'$s.TargetPath = "{pythonw_exe}"; '
+                f'$s.Arguments = "`"{main_py}`""; '
+                f'$s.WorkingDirectory = "{app_dir}"; '
                 f'$s.WindowStyle = 7; '
                 f'$s.Save()'
             )
@@ -256,12 +272,15 @@ class SelectionMonitor:
         self.press_pos = None
         self.last_typing_time = 0
         self.last_copied_text = ""
+        self._is_internal_copying = False
         self._start_listeners()
 
     def _start_listeners(self):
         from pynput import mouse, keyboard
 
         def on_key_press(key):
+            if getattr(self, "_is_internal_copying", False):
+                return
             self.last_typing_time = time.time()
             # Detect Ctrl+C (char \x03) copy shortcut press
             try:
@@ -311,9 +330,13 @@ class SelectionMonitor:
         except Exception:
             old_cb = ""
 
-        time.sleep(0.05)
-        pyautogui.hotkey("ctrl", "c")
-        time.sleep(0.08)
+        self._is_internal_copying = True
+        try:
+            time.sleep(0.05)
+            pyautogui.hotkey("ctrl", "c")
+            time.sleep(0.08)
+        finally:
+            self._is_internal_copying = False
 
         try:
             new_cb = pyperclip.paste()
@@ -374,8 +397,18 @@ def main():
     # Load config and services (all lightweight at startup)
     config = load_config()
 
-    # Synchronize Windows auto-startup setting if specified in config
-    if config.get("auto_startup", False) and not is_auto_startup_enabled():
+    # Automatically enable Windows auto-startup on first initiation or first run
+    if not config.get("first_run_complete", False) or "auto_startup" not in config:
+        print("  First initiation detected: enabling Windows Auto Startup...")
+        config["auto_startup"] = True
+        config["first_run_complete"] = True
+        set_auto_startup(True)
+        try:
+            with open(os.path.join(os.path.dirname(__file__), "config.json"), "w") as f:
+                json.dump(config, f, indent=2)
+        except Exception as e:
+            print(f"  Error saving config: {e}")
+    elif config.get("auto_startup", True) and not is_auto_startup_enabled():
         print("  Enabling Windows Auto Startup...")
         set_auto_startup(True)
 
@@ -410,11 +443,23 @@ def main():
     bridge.process_selection_signal.connect(_on_process_selection)
     bridge.voice_to_text_signal.connect(window.toggle_voice_input)
 
-    # Wire text selection & copied signals to Nearby Floating Bar
+    # Wire text selection & copied signals to Nearby Floating Bar with debouncing
+    last_trigger = {"text": "", "time": 0}
+
     def _on_text_selected(text, x, y):
+        now = time.time()
+        if text == last_trigger["text"] and (now - last_trigger["time"]) < 0.6:
+            return
+        last_trigger["text"] = text
+        last_trigger["time"] = now
         nearby_popup.show_near_position(text, x, y, trigger_type="selection")
 
     def _on_text_copied(text, x, y):
+        now = time.time()
+        if text == last_trigger["text"] and (now - last_trigger["time"]) < 0.6:
+            return
+        last_trigger["text"] = text
+        last_trigger["time"] = now
         nearby_popup.show_near_position(text, x, y, trigger_type="copy")
 
     def _on_expand_to_main(action, text):

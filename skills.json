@@ -16,6 +16,14 @@
     {
       "name": "💻 Code Only",
       "prompt": "IMPORTANT: Return ONLY executable code inside code block. Do NOT include any conversational introduction or explanation."
+    },
+    {
+      "name": "Stock/Index Forecast skill.",
+      "prompt": "Add a Stock/Index Forecast skill.\n\nInput: User enters an NSE stock symbol or index name.\n\nOutput:\n- Detect whether the input is a stock or index.\n- Analyze live price, trend, support/resistance, volume, and intraday momentum.\n- Give today’s trade bias: Bullish, Bearish, or No Trade.\n- For stocks: show Entry, Target, Stop Loss, and risk/reward ratio.\n- For indices: suggest the nearest suitable ATM/ITM Call or Put option strike, with Entry, Target/Take Profit, and Stop Loss.\n- Clearly show that the forecast is for intraday trading only and is based on market data/technical analysis, not guaranteed financial advice.\n- If conditions are unclear or risk is high, return “No Trade” instead of forcing a prediction."
+    },
+    {
+      "name": "Forecast",
+      "prompt": "Add a backend analysis skill for NSE stocks and indices.\n\nInput: Stock symbol or index name.\n\nAnalyze live price, trend, support/resistance, volume, momentum, and risk before generating the result. Output must be simple, actionable, and maximum 5 lines:\n\nHeadline: BUY / SELL / NO TRADE\nEntry: ₹XXX\nStop Loss: ₹XXX\nTarget: ₹XXX\nRemarks: Short reason with key pros and cons.\n\nFor index inputs, also mention the suggested CE or PE option strike in the Headline or Remarks. If the setup is weak, unclear, or risk is high, return NO TRADE instead of a forced signal."
     }
   ]
 }

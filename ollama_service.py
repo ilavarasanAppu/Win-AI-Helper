@@ -6,34 +6,39 @@ from typing import Callable, Generator
 class OllamaService:
     """Ollama API client with lazy model management and streaming."""
 
+    STRICT_SUFFIX = (
+        "\n\nSTRICT FORMATTING DIRECTIVE:\n"
+        "Return ONLY the final requested output. DO NOT include any conversational filler, greetings, confirmations "
+        "('Okay', 'Sure', 'Here is', 'I will do that', 'Let me prepare'), introductory headers, extra suggestions, or closing remarks. "
+        "Do not output <think> tags or reasoning steps."
+    )
+
     # ── action prompt definitions ──────────────────────────────
     _ACTIONS = {
         "rewrite": (
             "You are an expert editor. Rewrite and polish the provided text to improve clarity, tone, "
-            "and grammar while preserving its original meaning. Return only the revised text. Do not output <think> tags or reasoning steps."
+            "and grammar while preserving its original meaning."
         ),
         "enhance": (
             "Enhance and expand the following text with richer vocabulary, better structure, and more detail. "
-            "Preserve the core idea but make it professional and compelling. Return the enhanced text. Do not output <think> tags or reasoning steps."
+            "Preserve the core idea but make it professional and compelling."
         ),
         "plan": (
             "You are an expert planner. Break down the provided objective or context into a clear, actionable, "
-            "structured step-by-step plan with priorities and milestones. Do not output <think> tags or reasoning steps."
+            "structured step-by-step plan with priorities and milestones."
         ),
         "explain": (
             "You are a concise tutor. Explain the meaning, concept, or logic of the provided text clearly "
-            "with simple terms and concise examples. Do not output <think> tags or reasoning steps."
+            "with simple terms and concise examples."
         ),
         "translate": (
-            "Translate the following text accurately into natural English (or Tamil if input is English). "
-            "Preserve nuance and tone. Return only the translation. Do not output <think> tags or reasoning steps."
+            "Translate the provided text accurately. Preserve nuance and tone."
         ),
         "summarize": (
-            "Summarize the key points of the provided text into clear, concise bullet points. Do not output <think> tags or reasoning steps."
+            "Summarize the key points of the provided text into clear, concise bullet points."
         ),
         "details": (
-            "Provide detailed information, additional context, or deeper analysis on the following topic. "
-            "Be thorough and structured. Do not output <think> tags or reasoning steps."
+            "Provide detailed information, additional context, or deeper analysis on the provided topic."
         ),
     }
 
@@ -132,15 +137,16 @@ class OllamaService:
         if action_type == "translate":
             sys_prompt = (
                 f"Translate the following text accurately into natural {target_lang}. "
-                "Preserve nuance and tone. Return only the translation. Do not output <think> tags or reasoning steps."
+                "Preserve nuance and tone." + self.STRICT_SUFFIX
             )
         elif action_type in ("expand", "enhance"):
             sys_prompt = (
                 "Enhance and expand the following text with richer vocabulary, better structure, and more detail. "
-                "Preserve the core idea but make it professional and compelling. Return only the expanded text. Do not output <think> tags or reasoning steps."
+                "Preserve the core idea but make it professional and compelling." + self.STRICT_SUFFIX
             )
         else:
-            sys_prompt = self._ACTIONS.get(action_type, "You are a helpful and concise Windows desktop assistant.")
+            base_p = self._ACTIONS.get(action_type, "You are a helpful and concise Windows desktop assistant.")
+            sys_prompt = base_p + self.STRICT_SUFFIX
         return sys_prompt, text
 
     def get_model_name(self) -> str:

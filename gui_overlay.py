@@ -14,12 +14,35 @@ from skills import SkillManager
 
 
 def clean_think_text(text: str) -> str:
-    """Strip out <think>...</think> and <thought>...</thought> tags and content."""
+    """Strip out <think>...</think> reasoning blocks and conversational fluff."""
     if not text:
         return text
+    # 1. Remove <think> and <thought> tags & content
     cleaned = re.sub(r'<(think|thought)>.*?</\1>', '', text, flags=re.DOTALL | re.IGNORECASE)
     cleaned = re.sub(r'<(think|thought)>.*', '', cleaned, flags=re.DOTALL | re.IGNORECASE)
-    return cleaned.strip()
+    cleaned = cleaned.strip()
+
+    # 2. Remove common intro conversational fluff in multiple passes
+    intro_patterns = [
+        r'^(?:sure|okay|ok|certainly|of course)[!.,]?\s*',
+        r'^(?:here is|here\'s|below is|as requested|i will|let me|i have|i\'ve)[^:\n]*:\s*',
+        r'^(?:here is|here\'s) (?:the |your )?(?:revised|enhanced|translated|summarized|explained|summary|result|text|output)[^:\n]*:\s*',
+    ]
+    for _ in range(3):
+        prev = cleaned
+        for pattern in intro_patterns:
+            cleaned = re.sub(pattern, '', cleaned, flags=re.IGNORECASE).strip()
+        if cleaned == prev:
+            break
+
+    # 3. Remove common outro conversational fluff
+    outro_patterns = [
+        r'\n*(?:hope this helps|let me know if you need|is there anything else|feel free to ask)[^\n]*$',
+    ]
+    for pattern in outro_patterns:
+        cleaned = re.sub(pattern, '', cleaned, flags=re.IGNORECASE).strip()
+
+    return cleaned
 
 
 class ThinkFilter:
@@ -84,6 +107,55 @@ class ThinkFilter:
             return res
         self.buffer = ""
         return ""
+
+
+# ── History Line Edit (Up/Down Arrow Key Navigation) ────────────
+class HistoryLineEdit(QLineEdit):
+    """QLineEdit subclass supporting Up/Down arrow key prompt history navigation."""
+
+    def __init__(self, history_manager=None, parent=None):
+        super().__init__(parent)
+        self.history_manager = history_manager
+        self.history_items = []
+        self.history_index = -1
+        self.draft_text = ""
+
+    def set_history_manager(self, history_manager):
+        self.history_manager = history_manager
+
+    def update_history_cache(self):
+        if self.history_manager and hasattr(self.history_manager, "history"):
+            raw_prompts = [h.get("prompt", "") for h in self.history_manager.history if h.get("prompt")]
+            seen = set()
+            self.history_items = []
+            for p in raw_prompts:
+                p_clean = p.strip()
+                if p_clean and p_clean not in seen:
+                    seen.add(p_clean)
+                    self.history_items.append(p_clean)
+        else:
+            self.history_items = []
+        self.history_index = -1
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Up:
+            if self.history_index == -1:
+                self.update_history_cache()
+                self.draft_text = self.text()
+            if self.history_items:
+                if self.history_index < len(self.history_items) - 1:
+                    self.history_index += 1
+                    self.setText(self.history_items[self.history_index])
+            return
+        elif event.key() == Qt.Key_Down:
+            if self.history_index >= 0:
+                self.history_index -= 1
+                if self.history_index == -1:
+                    self.setText(self.draft_text)
+                else:
+                    self.setText(self.history_items[self.history_index])
+            return
+        super().keyPressEvent(event)
 
 
 # ── History Manager ────────────────────────────────────────────
@@ -259,15 +331,31 @@ class HistoryDialog(QDialog):
         header.addWidget(del_btn)
         card_layout.addLayout(header)
 
-        # Prompt text preview
+        # Prompt text box (100% selectable by mouse)
         prompt_text = item.get("prompt", "")
-        prompt_preview = prompt_text[:117] + "..." if len(prompt_text) > 120 else prompt_text
-        prompt_lbl = QLabel(f"<b>Prompt:</b> {prompt_preview}", card)
-        prompt_lbl.setStyleSheet("color: #d4d4d8; font-size: 11px;")
-        prompt_lbl.setWordWrap(True)
-        card_layout.addWidget(prompt_lbl)
+        
+        prompt_hdr = QLabel("<b>User Request Prompt:</b>", card)
+        prompt_hdr.setStyleSheet("color: #a5b4fc; font-size: 10px;")
+        card_layout.addWidget(prompt_hdr)
+
+        prompt_box = QTextEdit(card)
+        prompt_box.setReadOnly(True)
+        prompt_box.setFixedHeight(48)
+        prompt_box.setPlainText(prompt_text)
+        prompt_box.setStyleSheet("""
+            QTextEdit {
+                background-color: #1c1c22; color: #e4e4e7;
+                border: 1px solid #3730a3; border-radius: 5px;
+                font-size: 11px; padding: 4px; font-weight: 500;
+            }
+        """)
+        card_layout.addWidget(prompt_box)
 
         # Response text box
+        resp_hdr = QLabel("<b>AI Response:</b>", card)
+        resp_hdr.setStyleSheet("color: #34d399; font-size: 10px;")
+        card_layout.addWidget(resp_hdr)
+
         resp_box = QTextEdit(card)
         resp_box.setReadOnly(True)
         resp_box.setFixedHeight(75)
@@ -281,23 +369,40 @@ class HistoryDialog(QDialog):
         """)
         card_layout.addWidget(resp_box)
 
-        # Bottom copy button row
+        # Bottom copy buttons row (Copy Prompt + Copy Response)
         bot_row = QHBoxLayout()
-        copy_btn = QPushButton("📋 Copy Response", card)
-        copy_btn.setFixedHeight(22)
-        copy_btn.setStyleSheet("""
+
+        copy_prompt_btn = QPushButton("📋 Copy Prompt", card)
+        copy_prompt_btn.setFixedHeight(22)
+        copy_prompt_btn.setStyleSheet("""
+            QPushButton { background-color: #3730a3; color: #ffffff; padding: 2px 8px; font-weight: 500; }
+            QPushButton:hover { background-color: #4f46e5; }
+        """)
+
+        def _copy_prompt(p_val=prompt_text):
+            QApplication.clipboard().setText(p_val)
+            copy_prompt_btn.setText("✓ Copied Prompt!")
+            QTimer.singleShot(1500, lambda: copy_prompt_btn.setText("📋 Copy Prompt"))
+
+        copy_prompt_btn.clicked.connect(_copy_prompt)
+
+        copy_resp_btn = QPushButton("📋 Copy Response", card)
+        copy_resp_btn.setFixedHeight(22)
+        copy_resp_btn.setStyleSheet("""
             QPushButton { background-color: #3f3f4e; color: #ffffff; padding: 2px 8px; font-weight: 500; }
             QPushButton:hover { background-color: #6366f1; }
         """)
 
-        def _copy_resp(text_val=item.get("response", "")):
-            QApplication.clipboard().setText(text_val)
-            copy_btn.setText("✓ Copied!")
-            QTimer.singleShot(1500, lambda: copy_btn.setText("📋 Copy Response"))
+        def _copy_resp(r_val=item.get("response", "")):
+            QApplication.clipboard().setText(r_val)
+            copy_resp_btn.setText("✓ Copied Response!")
+            QTimer.singleShot(1500, lambda: copy_resp_btn.setText("📋 Copy Response"))
 
-        copy_btn.clicked.connect(_copy_resp)
+        copy_resp_btn.clicked.connect(_copy_resp)
+
+        bot_row.addWidget(copy_prompt_btn)
         bot_row.addStretch()
-        bot_row.addWidget(copy_btn)
+        bot_row.addWidget(copy_resp_btn)
         card_layout.addLayout(bot_row)
 
         return card
@@ -423,12 +528,25 @@ class NearbySuggestionPopup(QWidget):
         card_layout.setContentsMargins(8, 8, 8, 8)
         card_layout.setSpacing(6)
 
-        # Header row: preview text + close button
+        # Header row: model selection dropdown + preview text + close button
         header_row = QHBoxLayout()
         header_row.setSpacing(6)
 
-        badge = QLabel("⚡ AI", self.card)
-        badge.setStyleSheet("color: #818cf8; font-weight: bold; font-size: 11px; background-color: #2e2a52; border-radius: 4px; padding: 2px 5px;")
+        self.model_combo = QComboBox(self.card)
+        self.model_combo.setToolTip("Select AI Model")
+        self.model_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #2e2a52; color: #a5b4fc; border: 1px solid #4338ca;
+                border-radius: 5px; padding: 2px 6px; font-size: 10px; font-weight: bold;
+                max-width: 150px;
+            }
+            QComboBox::drop-down { border: none; }
+            QComboBox QAbstractItemView {
+                background-color: #1a1a20; color: #e4e4e7; selection-background-color: #3f3f56;
+            }
+        """)
+        self.refresh_model_dropdown()
+        self.model_combo.currentTextChanged.connect(self._on_model_changed)
 
         self.preview_label = QLabel("Selected text...", self.card)
         self.preview_label.setStyleSheet("color: #e4e4e7; font-size: 11px; font-weight: 500;")
@@ -443,7 +561,7 @@ class NearbySuggestionPopup(QWidget):
         """)
         close_btn.clicked.connect(self.hide)
 
-        header_row.addWidget(badge)
+        header_row.addWidget(self.model_combo)
         header_row.addWidget(self.preview_label, 1)
         header_row.addWidget(close_btn)
         card_layout.addLayout(header_row)
@@ -485,8 +603,8 @@ class NearbySuggestionPopup(QWidget):
         ask_layout.setContentsMargins(0, 2, 0, 2)
         ask_layout.setSpacing(4)
 
-        self.ask_input = QLineEdit(self.ask_container)
-        self.ask_input.setPlaceholderText("Ask AI about this text...")
+        self.ask_input = HistoryLineEdit(self.history_manager, self.ask_container)
+        self.ask_input.setPlaceholderText("Ask AI about this text... (Up/Down for history)")
         self.ask_input.setStyleSheet("""
             QLineEdit {
                 background-color: #121216; color: #f4f4f5; border: 1px solid #3f3f56;
@@ -531,10 +649,50 @@ class NearbySuggestionPopup(QWidget):
 
         main_layout.addWidget(self.card)
 
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            event.accept()
+        else:
+            super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if event.buttons() == Qt.LeftButton and getattr(self, "_drag_pos", None) is not None:
+            self.move(event.globalPosition().toPoint() - self._drag_pos)
+            event.accept()
+        else:
+            super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._drag_pos = None
+        event.accept()
+
+    def refresh_model_dropdown(self):
+        self.model_combo.blockSignals(True)
+        self.model_combo.clear()
+        models = self.ollama.get_available_models()
+        active_model = self.ollama.get_model_name()
+        if not models:
+            models = [active_model]
+        for m in models:
+            self.model_combo.addItem(f"⚡ {m}")
+        for i in range(self.model_combo.count()):
+            item_model = self.model_combo.itemText(i).replace("⚡ ", "").strip()
+            if item_model == active_model:
+                self.model_combo.setCurrentIndex(i)
+                break
+        self.model_combo.blockSignals(False)
+
+    def _on_model_changed(self, text: str):
+        if text:
+            model_name = text.replace("⚡ ", "").strip()
+            self.ollama.set_model(model_name)
+
     def show_near_position(self, text: str, x: int = None, y: int = None, trigger_type: str = "selection"):
         if not text or not text.strip():
             return
 
+        self.refresh_model_dropdown()
         self.selected_text = text.strip()
         truncated = self.selected_text.replace("\n", " ")
         if len(truncated) > 40:
@@ -912,8 +1070,8 @@ class AIHelperWindow(QWidget):
         # ── Bottom bar (input + action buttons) ───────────────
         bottom_row = QHBoxLayout()
 
-        self.input_field = QLineEdit(self.card)
-        self.input_field.setPlaceholderText("Type a request, or press Enter…")
+        self.input_field = HistoryLineEdit(self.history_manager, self.card)
+        self.input_field.setPlaceholderText("Type a request, or press Enter… (Up/Down for history)")
         self.input_field.setStyleSheet("""
             QLineEdit {
                 background-color: #141418; color: #f4f4f5; border: 1px solid #272730;
@@ -981,6 +1139,24 @@ class AIHelperWindow(QWidget):
                 self.input_field.setCompleter(None)
 
         self.input_field.textChanged.connect(_on_input_text_changed)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            event.accept()
+        else:
+            super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if event.buttons() == Qt.LeftButton and getattr(self, "_drag_pos", None) is not None:
+            self.move(event.globalPosition().toPoint() - self._drag_pos)
+            event.accept()
+        else:
+            super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self._drag_pos = None
+        event.accept()
 
     def show_history_dialog(self):
         if not hasattr(self, "history_dialog") or self.history_dialog is None or not self.history_dialog.isVisible():
