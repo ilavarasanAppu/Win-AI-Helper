@@ -1,8 +1,8 @@
 @echo off
 REM ============================================================
-REM  ⚡ Win AI Helper — Direct Launcher
-REM  Single execution - installs deps and launches app
-REM  Terminal closes automatically
+REM  ⚡ Win AI Helper — One-Click Launcher
+REM  Installs dependencies and launches app in background
+REM  Terminal closes automatically after launch
 REM ============================================================
 
 cd /d "%~dp0"
@@ -13,13 +13,14 @@ if exist "%LOCALAPPDATA%\Programs\Python\Python314\python.exe" (
     set "PYTHON_EXE=%LOCALAPPDATA%\Programs\Python\Python314\python.exe"
 )
 
-REM — Install dependencies if requirements.txt exists —————————————————
+REM — Check if requirements.txt exists —————————————————————————
 if exist "requirements.txt" (
+    REM — Install dependencies silently ———————————————————————————
     "%PYTHON_EXE%" -m pip install -r requirements.txt --quiet --upgrade 2>nul
 )
 
-REM — Launch the application in background ———————————————————————
+REM — Launch the application in background and close this window ———————
 start /B "" "%PYTHON_EXE%" "%~dp0main.py"
 
-REM — Close terminal immediately ———————————————————————————————
+REM — Close the terminal immediately ———————————————————————————
 exit

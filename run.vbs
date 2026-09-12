@@ -1,12 +1,12 @@
-' ⚡ Win AI Helper — Native Silent Launcher (Zero Terminal Window)
 Set WshShell = CreateObject("WScript.Shell")
-Set fso = CreateObject("Scripting.FileSystemObject")
-scriptDir = fso.GetParentFolderName(WScript.ScriptFullName)
+Set FSO = CreateObject("Scripting.FileSystemObject")
 
-pythonwExe = WshShell.ExpandEnvironmentStrings("%USERPROFILE%") & "\AppData\Local\hermes\hermes-agent\venv\Scripts\pythonw.exe"
-If Not fso.FileExists(pythonwExe) Then
-    pythonwExe = "pythonw.exe"
-End If
+scriptDir = FSO.GetParentFolderName(WScript.ScriptFullName)
 
-WshShell.CurrentDirectory = scriptDir
-WshShell.Run """" & pythonwExe & """ """ & scriptDir & "\main.py""", 0, False
+' Get the path to start.bat (same directory as this VBS file)
+startBat = scriptDir & "\start.bat"
+
+' Run start.bat hidden - it will install deps and launch app in background
+WshShell.Run "cmd.exe /c " & Chr(34) & startBat & Chr(34), 0, False
+
+WScript.Quit
