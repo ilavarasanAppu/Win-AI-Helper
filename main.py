@@ -10,7 +10,8 @@
     Ctrl+Alt+X      — Process clipboard selection with AI
     Ctrl+Alt+V      — Voice transcription mode
 
-Usage: run.bat  → launches tray icon app
+Usage: start.bat → launches tray icon app in background
+       stop.bat  → cleanly stops the background app
 """
 
 import sys
@@ -19,6 +20,24 @@ import time
 import threading
 import os
 import winreg
+
+# Ensure safe output encoding under pythonw (where stdout may be None) and Windows cp1252
+if sys.stdout is None:
+    sys.stdout = open(os.devnull, "w", encoding="utf-8")
+elif hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
+if sys.stderr is None:
+    sys.stderr = open(os.devnull, "w", encoding="utf-8")
+elif hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 from PySide6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
 from PySide6.QtGui import QIcon, QAction, QPixmap, QColor, QPainter, QCursor
 from PySide6.QtCore import QTimer, QObject, Signal
@@ -499,4 +518,12 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        import traceback
+        log_path = os.path.join(os.path.dirname(__file__), "app_log.txt")
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(f"\n[{time.strftime('%Y-%m-%d %H:%M:%S')}] Fatal error:\n")
+            traceback.print_exc(file=f)
+        raise

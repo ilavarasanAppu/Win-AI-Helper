@@ -39,14 +39,15 @@ Select or copy any text anywhere in Windows and an AI suggestion bar appears ins
    cd Win-AI-Helper
    ```
 
-2. **Run the setup script:**
+2. **Launch the application (One-Click):**
    ```
-   setup.bat
+   start.bat
    ```
    This will:
-   - Install all required Python packages
+   - Check and install required Python packages silently
    - Start Ollama server (if not already running)
-   - Launch the AI Helper app
+   - Launch the AI Helper app detached in the background
+   - Automatically close the terminal window immediately
 
 ### Manual Setup
 
@@ -70,12 +71,16 @@ Select or copy any text anywhere in Windows and an AI suggestion bar appears ins
    python main.py
    ```
 
-### Running in Background
+### Running & Stopping in Background
 
-Use `run.bat` to launch the app silently in the background — it auto-starts Ollama if needed:
-```
-run.bat
-```
+- **Start:** Double-click `start.bat` to launch the app silently in the background (terminal auto-closes immediately).
+  ```cmd
+  start.bat
+  ```
+- **Stop:** Double-click `stop.bat` to cleanly terminate the background application:
+  ```cmd
+  stop.bat
+  ```
 
 ---
 
@@ -200,8 +205,8 @@ Win-AI-Helper/
 ├── skills.json          # Saved skills configuration
 ├── config.json          # App configuration
 ├── diagnostic.py        # System diagnostics utility
-├── setup.bat            # One-click setup & launch script
-├── run.bat              # Background launcher script
+├── start.bat            # One-click background launcher (auto-closing)
+├── stop.bat             # Clean shutdown script
 └── .gitignore
 ```
 
