@@ -998,9 +998,9 @@ class AIHelperWindow(QWidget):
         self.actions = {}
         btn_layout = QHBoxLayout()
         row_btns = [
-            ("✍️  Rewrite", "rewrite"),
+            ("✍️  Rewrite", "rewrite"),  # Rewrite mode: rough answer -> proper sentences
             ("✨  Expand", "expand"),
-            ("📋  Plan", "plan"),
+            ("📋  Plan", "plan"),  # Plan mode: Complete Detailed Plan + Script Logic (md+json for AI agent)
             ("📖  Explain", "explain"),
             ("🌐  Translate", "translate"),
             ("📝  Summarize", "summarize"),
@@ -1008,6 +1008,11 @@ class AIHelperWindow(QWidget):
         for label, act in row_btns:
             btn = QPushButton(label, self.card)
             btn.setFixedHeight(26)
+            btn.setToolTip(
+                "Rewrite: polish rough answer into proper sentences (preserves meaning)" if act == "rewrite"
+                else "Plan: Complete Detailed Plan + Script Logic as md+json for AI agent" if act == "plan"
+                else label
+            )
             btn.setStyleSheet("""
                 QPushButton {
                     background-color: #272730; color: #e4e4e7;
@@ -1104,6 +1109,47 @@ class AIHelperWindow(QWidget):
         bottom_row.addLayout(action_row)
         card_layout.addLayout(bottom_row)
 
+        # ── Writing Assistance inline suggestion (grammar + improve, short result, no think) ──
+        self.writing_suggest_frame = QFrame(self.card)
+        self.writing_suggest_frame.setStyleSheet("""
+            QFrame { background-color: #1a1a2e; border: 1px solid #4338ca; border-radius: 6px; padding: 4px; }
+        """)
+        self.writing_suggest_frame.hide()
+        ws_layout = QHBoxLayout(self.writing_suggest_frame)
+        ws_layout.setContentsMargins(6, 4, 6, 4)
+        ws_layout.setSpacing(6)
+        self.writing_suggest_label = QLabel("", self.writing_suggest_frame)
+        self.writing_suggest_label.setWordWrap(True)
+        self.writing_suggest_label.setStyleSheet("color: #a5b4fc; font-size: 11px; border: none;")
+        self.writing_suggest_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        ws_layout.addWidget(self.writing_suggest_label, 1)
+        self.writing_apply_btn = QPushButton("✔ Apply", self.writing_suggest_frame)
+        self.writing_apply_btn.setFixedHeight(22)
+        self.writing_apply_btn.setStyleSheet("QPushButton { background-color: #4f46e5; color: #ffffff; border-radius: 5px; padding: 2px 8px; font-size: 10px; font-weight: bold; } QPushButton:hover { background-color: #6366f1; }")
+        self.writing_apply_btn.clicked.connect(self._apply_writing_suggestion)
+        ws_layout.addWidget(self.writing_apply_btn)
+        self.writing_copy_btn = QPushButton("📋", self.writing_suggest_frame)
+        self.writing_copy_btn.setFixedSize(26, 22)
+        self.writing_copy_btn.setToolTip("Copy suggestion")
+        self.writing_copy_btn.setStyleSheet("QPushButton { background-color: #272730; color: #e4e4e7; border-radius: 5px; font-size: 11px; } QPushButton:hover { background-color: #3f3f4e; }")
+        self.writing_copy_btn.clicked.connect(self._copy_writing_suggestion)
+        ws_layout.addWidget(self.writing_copy_btn)
+        self.writing_dismiss_btn = QPushButton("✕", self.writing_suggest_frame)
+        self.writing_dismiss_btn.setFixedSize(22, 22)
+        self.writing_dismiss_btn.setStyleSheet("QPushButton { color: #a1a1aa; background: none; border: none; font-size: 11px; } QPushButton:hover { color: #ef4444; }")
+        self.writing_dismiss_btn.clicked.connect(self.writing_suggest_frame.hide)
+        ws_layout.addWidget(self.writing_dismiss_btn)
+        card_layout.addWidget(self.writing_suggest_frame)
+
+        # Writing assistance debounce worker
+        self._writing_timer = QTimer(self)
+        self._writing_timer.setSingleShot(True)
+        self._writing_timer.setInterval(650)
+        self._writing_timer.timeout.connect(self._request_writing_suggestion)
+        self._writing_worker = None
+        self._writing_think_filter = ThinkFilter()
+        self._writing_last_text = ""
+
         main_layout.addWidget(self.card)
 
         # ── Typing Auto-Completer ─────────────────────────────
@@ -1131,14 +1177,111 @@ class AIHelperWindow(QWidget):
         self.completer.setCaseSensitivity(Qt.CaseInsensitive)
         self.completer.setCompletionMode(QCompleter.PopupCompletion)
 
-        # Trigger completion suggestions only when typing '/' commands
+        # Trigger completion suggestions only when typing '/' commands + writing assistance debounce
         def _on_input_text_changed(text: str):
             if text.startswith("/"):
                 self.input_field.setCompleter(self.completer)
+                self.writing_suggest_frame.hide()
+                self._writing_timer.stop()
             else:
                 self.input_field.setCompleter(None)
+                # Writing assistance: debounce short grammar/improve suggestion (no thinking, short result)
+                # Skip when plan/code/summarize skills active (exceptions)
+                active_skill = getattr(self.skill_manager, "active_skill_name", "")
+                is_exception = active_skill in ("💻 Code Only",) or any(k in active_skill.lower() for k in ["code", "json"])
+                # Also skip if user is using /plan or /code prefix
+                if is_exception or text.strip().startswith(("/plan", "/code", "/json")):
+                    self.writing_suggest_frame.hide()
+                    self._writing_timer.stop()
+                else:
+                    stripped = text.strip()
+                    if len(stripped) >= 4 and not stripped.isdigit():
+                        # basic heuristic: contains letters and looks like sentence to correct
+                        if any(c.isalpha() for c in stripped):
+                            self._writing_timer.start()
+                        else:
+                            self.writing_suggest_frame.hide()
+                            self._writing_timer.stop()
+                    else:
+                        self.writing_suggest_frame.hide()
+                        self._writing_timer.stop()
 
         self.input_field.textChanged.connect(_on_input_text_changed)
+
+    # ── Writing Assistance handlers (grammar + improve, short result, no thinking) ──
+    def _request_writing_suggestion(self):
+        text = self.input_field.text().strip()
+        if not text or len(text) < 4 or text.startswith("/"):
+            self.writing_suggest_frame.hide()
+            return
+        # Skip exceptions: plan / code / summarize keep full behavior
+        active_skill = getattr(self.skill_manager, "active_skill_name", "")
+        if active_skill in ("💻 Code Only", "📄 JSON Format Only") or "code" in active_skill.lower():
+            return
+        if text == getattr(self, "_writing_last_text", ""):
+            return
+        self._writing_last_text = text
+        # Stop previous worker
+        if self._writing_worker and self._writing_worker.isRunning():
+            try:
+                self._writing_worker.terminate()
+                self._writing_worker.wait(300)
+            except Exception:
+                pass
+        self.writing_suggest_label.setText("✍️ Checking…")
+        self.writing_suggest_frame.show()
+        self._writing_think_filter.reset()
+        sys_prompt, prompt = self.ollama.get_action_prompt("writing_assist", text)
+        # writing_assist bypasses skill to keep short result + no think
+        def _gen():
+            yield from self.ollama.stream_generate(prompt, system_prompt=sys_prompt)
+        self._writing_worker = WorkerThread(_gen)
+        self._writing_worker.chunk_received.connect(self._on_writing_chunk)
+        self._writing_worker.finished.connect(self._on_writing_finished)
+        self._writing_worker.start()
+
+    def _on_writing_chunk(self, chunk: str):
+        filtered = self._writing_think_filter.process_chunk(chunk)
+        if filtered:
+            # Accumulate short result in label (replace checking text after first chunk)
+            current = self.writing_suggest_label.text()
+            if current == "✍️ Checking…":
+                self.writing_suggest_label.setText(filtered.strip())
+            else:
+                self.writing_suggest_label.setText((current + filtered).strip())
+
+    def _on_writing_finished(self):
+        flushed = self._writing_think_filter.flush()
+        if flushed:
+            cur = self.writing_suggest_label.text()
+            if cur == "✍️ Checking…":
+                self.writing_suggest_label.setText(flushed.strip())
+            else:
+                self.writing_suggest_label.setText((cur + flushed).strip())
+        cleaned = clean_think_text(self.writing_suggest_label.text())
+        # If suggestion is identical to input (already correct), hide to avoid noise
+        inp = self.input_field.text().strip()
+        if not cleaned or cleaned.strip().lower() == inp.lower():
+            self.writing_suggest_frame.hide()
+            return
+        # Limit to short result (1-2 lines)
+        if len(cleaned) > 180:
+            cleaned = cleaned[:180].rsplit(" ", 1)[0] + "…"
+        self.writing_suggest_label.setText(f"✨ {cleaned}")
+
+    def _apply_writing_suggestion(self):
+        sug = self.writing_suggest_label.text().lstrip("✨ ").strip()
+        if sug and sug != "✍️ Checking…":
+            self.input_field.setText(sug)
+            self.writing_suggest_frame.hide()
+            self.input_field.setFocus()
+
+    def _copy_writing_suggestion(self):
+        sug = self.writing_suggest_label.text().lstrip("✨ ").strip()
+        if sug and sug != "✍️ Checking…":
+            QApplication.clipboard().setText(sug)
+            self.writing_copy_btn.setText("✓")
+            QTimer.singleShot(1200, lambda: self.writing_copy_btn.setText("📋"))
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
@@ -1351,8 +1494,13 @@ class AIHelperWindow(QWidget):
         model_name = self.ollama.get_model_name()
         status_msg = f"⏳ Generating via {model_name}…"
 
-        skill_prompt = self.skill_manager.get_active_skill_prompt()
-        combined_sys = (skill_prompt + "\n\n" + system_prompt).strip()
+        # For rewrite/plan: bypass skill to prevent interference (rewrite must be pure grammar fix, plan must be md+json)
+        current_action = getattr(self, "_current_action_name", "")
+        if current_action in ("rewrite", "plan"):
+            combined_sys = system_prompt.strip()
+        else:
+            skill_prompt = self.skill_manager.get_active_skill_prompt()
+            combined_sys = (skill_prompt + "\n\n" + system_prompt).strip()
 
         def _load_and_generate():
             yield from self.ollama.stream_generate(user_input, system_prompt=combined_sys)

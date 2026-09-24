@@ -1,0 +1,25 @@
+{
+  "meta": {
+    "objective": "REPLACE_WITH_OBJECTIVE",
+    "version": "1.0"
+  },
+  "workflow": [
+    {
+      "step": 1,
+      "id": "setup",
+      "action": "REPLACE_WITH_ACTION",
+      "input": "objective",
+      "output": "project structure",
+      "tool": "bash",
+      "depends_on": [],
+      "priority": "P0",
+      "code_block": "",
+      "validation": "folder exists"
+    }
+  ],
+  "files": [
+    { "path": "main.py", "purpose": "Main logic", "template": "python" }
+  ],
+  "env": {},
+  "acceptance_criteria": ["REPLACE_WITH_CRITERIA"]
+}

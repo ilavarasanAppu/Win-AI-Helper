@@ -12,7 +12,7 @@ DEFAULT_SKILLS = [
     },
     {
         "name": "🔤 Tanglish",
-        "prompt": "IMPORTANT: Respond strictly in Tanglish (Tamil language written using English/Latin alphabet). Keep the answer direct and natural."
+        "prompt": "IMPORTANT: Respond strictly in Tanglish (Tamil language written using English alphabet). Keep the answer direct and natural."
     },
     {
         "name": "💻 Code Only",
